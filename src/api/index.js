@@ -10,6 +10,10 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.get('/healthz', (_req, res) => {
+  res.json({ service: 'api' });
+});
+
 // GET /tasks — list all tasks
 app.get('/tasks', async (_req, res) => {
   const { rows } = await db.query('SELECT * FROM tasks ORDER BY created_at ASC');
@@ -48,6 +52,10 @@ app.patch('/tasks/:id', async (req, res) => {
   res.json(updated[0]);
 });
 
-app.listen(PORT, () => {
-  console.log(`API listening on port ${PORT}`);
-});
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`API listening on port ${PORT}`);
+  });
+}
+
+module.exports = app;
