@@ -1,8 +1,12 @@
 const express = require('express');
+const NodeCache = require('node-cache');
 const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Initialize cache with 30 second TTL (stdTTL)
+const cache = new NodeCache({ stdTTL: 30 });
 
 app.use(express.json());
 
@@ -27,6 +31,40 @@ app.use((req, res, next) => {
     originalEnd.apply(res, args);
   };
   
+  next();
+});
+
+// Cache middleware for GET requests
+app.use((req, res, next) => {
+  // Only cache GET requests
+  if (req.method !== 'GET') {
+    return next();
+  }
+
+  // Check if response is in cache
+  const cacheKey = req.originalUrl || req.url;
+  const cachedResponse = cache.get(cacheKey);
+  
+  if (cachedResponse) {
+    return res.json(cachedResponse);
+  }
+
+  // Intercept res.json to cache the response
+  const originalJson = res.json.bind(res);
+  res.json = function(data) {
+    cache.set(cacheKey, data);
+    return originalJson(data);
+  };
+
+  next();
+});
+
+// Cache invalidation middleware for write operations
+app.use((req, res, next) => {
+  // Clear cache on POST, PATCH, DELETE operations
+  if (['POST', 'PATCH', 'DELETE'].includes(req.method)) {
+    cache.flushAll();
+  }
   next();
 });
 

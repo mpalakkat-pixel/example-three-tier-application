@@ -230,3 +230,145 @@ describe('Request logging middleware', () => {
     expect(logEntry.statusCode).toBe(201);
   });
 });
+
+describe('Caching middleware', () => {
+  let consoleLogSpy;
+
+  beforeEach(() => {
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    jest.clearAllMocks();
+  });
+
+  it('should cache GET /tasks responses', async () => {
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Task 1', completed: false }] });
+
+    // First request should hit the database
+    const response1 = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response1.body).toEqual([{ id: 1, title: 'Task 1', completed: false }]);
+    expect(db.query).toHaveBeenCalledTimes(1);
+
+    // Second request should be served from cache
+    const response2 = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response2.body).toEqual([{ id: 1, title: 'Task 1', completed: false }]);
+    expect(db.query).toHaveBeenCalledTimes(1); // Still 1, not 2
+  });
+
+  it('should cache GET /health responses', async () => {
+    // First request
+    const response1 = await request(app)
+      .get('/health')
+      .expect(200);
+
+    expect(response1.body).toEqual({ status: 'ok' });
+
+    // Second request should be served from cache
+    const response2 = await request(app)
+      .get('/health')
+      .expect(200);
+
+    expect(response2.body).toEqual({ status: 'ok' });
+  });
+
+  it('should cache GET /healthz responses', async () => {
+    // First request
+    const response1 = await request(app)
+      .get('/healthz')
+      .expect(200);
+
+    expect(response1.body).toEqual({ service: 'api' });
+
+    // Second request should be served from cache
+    const response2 = await request(app)
+      .get('/healthz')
+      .expect(200);
+
+    expect(response2.body).toEqual({ service: 'api' });
+  });
+
+  it('should invalidate cache on POST /tasks', async () => {
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Task 1', completed: false }] });
+
+    // First GET request to populate cache
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+
+    // POST request should invalidate cache
+    db.query.mockResolvedValueOnce({ rows: [{ id: 2, title: 'New Task', completed: false }] });
+    await request(app)
+      .post('/tasks')
+      .send({ title: 'New Task' })
+      .expect(201);
+
+    // Next GET request should hit the database again
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Task 1', completed: false }, { id: 2, title: 'New Task', completed: false }] });
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledTimes(3); // Initial GET + POST + new GET
+  });
+
+  it('should invalidate cache on PATCH /tasks/:id', async () => {
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Task 1', completed: false }] });
+
+    // First GET request to populate cache
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledTimes(1);
+
+    // PATCH request should invalidate cache
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Task 1', completed: false }] });
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Updated Task', completed: true }] });
+    await request(app)
+      .patch('/tasks/1')
+      .send({ title: 'Updated Task', completed: true })
+      .expect(200);
+
+    // Next GET request should hit the database again
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Updated Task', completed: true }] });
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledTimes(4); // Initial GET + PATCH (2 queries) + new GET
+  });
+
+  it('should not cache POST requests', async () => {
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Task 1', completed: false }] });
+
+    const response = await request(app)
+      .post('/tasks')
+      .send({ title: 'Task 1' })
+      .expect(201);
+
+    expect(response.body).toEqual({ id: 1, title: 'Task 1', completed: false });
+  });
+
+  it('should not cache PATCH requests', async () => {
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Task 1', completed: false }] });
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Updated', completed: true }] });
+
+    const response = await request(app)
+      .patch('/tasks/1')
+      .send({ title: 'Updated', completed: true })
+      .expect(200);
+
+    expect(response.body).toEqual({ id: 1, title: 'Updated', completed: true });
+  });
+});
