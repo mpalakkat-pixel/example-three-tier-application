@@ -6,6 +6,9 @@ const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 
+// Request counter
+const requestCounts = {};
+
 // Request logging middleware
 app.use((req, res, next) => {
   const startTime = Date.now();
@@ -22,6 +25,10 @@ app.use((req, res, next) => {
       duration
     };
     console.log(JSON.stringify(logEntry));
+    
+    // Track request count by method and path
+    const key = `${req.method} ${req.path}`;
+    requestCounts[key] = (requestCounts[key] || 0) + 1;
     
     // Call the original end method
     originalEnd.apply(res, args);
@@ -46,6 +53,11 @@ app.get('/readyz', async (_req, res) => {
   } catch (error) {
     res.status(503).json({ status: 'unavailable', database: 'disconnected', error: error.message });
   }
+});
+
+// GET /metrics — return request counts
+app.get('/metrics', (_req, res) => {
+  res.json(requestCounts);
 });
 
 // GET /tasks — list all tasks
