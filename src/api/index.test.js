@@ -230,3 +230,113 @@ describe('Request logging middleware', () => {
     expect(logEntry.statusCode).toBe(201);
   });
 });
+
+describe('GET /metrics', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should return HTTP 200 with JSON content type', async () => {
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200)
+      .expect('Content-Type', /json/);
+
+    expect(response.status).toBe(200);
+  });
+
+  it('should return an object with request counts', async () => {
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200);
+
+    expect(typeof response.body).toBe('object');
+    expect(response.body).not.toBeNull();
+  });
+
+  it('should track GET /healthz requests', async () => {
+    // Make a request to /healthz
+    await request(app)
+      .get('/healthz')
+      .expect(200);
+
+    // Get metrics
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200);
+
+    expect(response.body['GET /healthz']).toBeGreaterThan(0);
+  });
+
+  it('should increment count for multiple requests to same endpoint', async () => {
+    // Make multiple requests to /healthz
+    await request(app)
+      .get('/healthz')
+      .expect(200);
+
+    await request(app)
+      .get('/healthz')
+      .expect(200);
+
+    // Get metrics
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200);
+
+    expect(response.body['GET /healthz']).toBeGreaterThanOrEqual(2);
+  });
+
+  it('should track different endpoints separately', async () => {
+    // Make requests to different endpoints
+    await request(app)
+      .get('/healthz')
+      .expect(200);
+
+    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+    await request(app)
+      .get('/readyz')
+      .expect(200);
+
+    // Get metrics
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200);
+
+    expect(response.body['GET /healthz']).toBeGreaterThan(0);
+    expect(response.body['GET /readyz']).toBeGreaterThan(0);
+  });
+
+  it('should track POST requests', async () => {
+    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Test', completed: false }] });
+
+    await request(app)
+      .post('/tasks')
+      .send({ title: 'Test Task' })
+      .expect(201);
+
+    // Get metrics
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200);
+
+    expect(response.body['POST /tasks']).toBeGreaterThan(0);
+  });
+
+  it('should include /metrics endpoint itself in counts', async () => {
+    // Make a request to /metrics
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200);
+
+    // The /metrics endpoint should be in the metrics
+    expect(response.body['GET /metrics']).toBeGreaterThan(0);
+  });
+
+  it('should return valid JSON', async () => {
+    const response = await request(app)
+      .get('/metrics')
+      .expect(200);
+
+    expect(() => JSON.stringify(response.body)).not.toThrow();
+  });
+});
