@@ -6,6 +6,30 @@ const PORT = process.env.PORT || 3001;
 
 app.use(express.json());
 
+// Request logging middleware
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  
+  // Capture the original res.end method
+  const originalEnd = res.end;
+  
+  res.end = function(...args) {
+    const duration = Date.now() - startTime;
+    const logEntry = {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      duration
+    };
+    console.log(JSON.stringify(logEntry));
+    
+    // Call the original end method
+    originalEnd.apply(res, args);
+  };
+  
+  next();
+});
+
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
