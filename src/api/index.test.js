@@ -1,6 +1,7 @@
 const request = require('supertest');
 const app = require('./index');
 const db = require('./db');
+const cache = require('./cache');
 
 jest.mock('./db');
 
@@ -228,5 +229,119 @@ describe('Request logging middleware', () => {
     const logEntry = JSON.parse(logCall[0]);
     expect(logEntry.method).toBe('POST');
     expect(logEntry.statusCode).toBe(201);
+  });
+});
+
+describe('GET /tasks with caching', () => {
+  beforeEach(() => {
+    cache.flushAll();
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    cache.flushAll();
+    jest.clearAllMocks();
+  });
+
+  it('should fetch tasks from database on first request', async () => {
+    const mockTasks = [
+      { id: 1, title: 'Task 1', completed: false, created_at: '2024-01-01' },
+      { id: 2, title: 'Task 2', completed: true, created_at: '2024-01-02' }
+    ];
+    db.query.mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body).toEqual(mockTasks);
+    expect(db.query).toHaveBeenCalledWith('SELECT * FROM tasks ORDER BY created_at ASC');
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('should return cached tasks on second request without database call', async () => {
+    const mockTasks = [
+      { id: 1, title: 'Task 1', completed: false, created_at: '2024-01-01' }
+    ];
+    db.query.mockResolvedValueOnce({ rows: mockTasks });
+
+    // First request
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    // Second request should use cache
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body).toEqual(mockTasks);
+    expect(db.query).toHaveBeenCalledTimes(1); // Only called once
+  });
+
+  it('should invalidate cache after POST /tasks', async () => {
+    const mockTasks = [
+      { id: 1, title: 'Task 1', completed: false, created_at: '2024-01-01' }
+    ];
+    const newTask = { id: 2, title: 'New Task', completed: false, created_at: '2024-01-02' };
+    
+    db.query.mockResolvedValueOnce({ rows: mockTasks });
+
+    // First GET request to populate cache
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    // POST request to create a task
+    db.query.mockResolvedValueOnce({ rows: [newTask] });
+    await request(app)
+      .post('/tasks')
+      .send({ title: 'New Task' })
+      .expect(201);
+
+    // Next GET request should fetch from database again
+    const updatedTasks = [...mockTasks, newTask];
+    db.query.mockResolvedValueOnce({ rows: updatedTasks });
+    
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body).toEqual(updatedTasks);
+    expect(db.query).toHaveBeenCalledTimes(3); // Initial GET, POST, and new GET
+  });
+
+  it('should invalidate cache after PATCH /tasks/:id', async () => {
+    const mockTasks = [
+      { id: 1, title: 'Task 1', completed: false, created_at: '2024-01-01' }
+    ];
+    
+    db.query.mockResolvedValueOnce({ rows: mockTasks });
+
+    // First GET request to populate cache
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    // PATCH request to update a task
+    db.query.mockResolvedValueOnce({ rows: mockTasks }); // SELECT for PATCH
+    const updatedTask = { id: 1, title: 'Task 1', completed: true, created_at: '2024-01-01' };
+    db.query.mockResolvedValueOnce({ rows: [updatedTask] }); // UPDATE for PATCH
+
+    await request(app)
+      .patch('/tasks/1')
+      .send({ completed: true })
+      .expect(200);
+
+    // Next GET request should fetch from database again
+    const updatedTasks = [updatedTask];
+    db.query.mockResolvedValueOnce({ rows: updatedTasks });
+    
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body).toEqual(updatedTasks);
+    expect(db.query).toHaveBeenCalledTimes(4); // Initial GET, SELECT for PATCH, UPDATE for PATCH, and new GET
   });
 });
