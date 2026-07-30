@@ -14,6 +14,16 @@ app.get('/healthz', (_req, res) => {
   res.json({ service: 'api' });
 });
 
+// GET /readyz — check database readiness
+app.get('/readyz', async (_req, res) => {
+  try {
+    await db.query('SELECT 1');
+    res.json({ status: 'ready', database: 'connected' });
+  } catch (error) {
+    res.status(503).json({ status: 'unavailable', database: 'disconnected', error: error.message });
+  }
+});
+
 // GET /tasks — list all tasks
 app.get('/tasks', async (_req, res) => {
   const { rows } = await db.query('SELECT * FROM tasks ORDER BY created_at ASC');
