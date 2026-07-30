@@ -49,10 +49,13 @@ app.use((req, res, next) => {
     return res.json(cachedResponse);
   }
 
-  // Intercept res.json to cache the response
+  // Intercept res.json to cache successful responses
   const originalJson = res.json.bind(res);
   res.json = function(data) {
-    cache.set(cacheKey, data);
+    // Only cache successful responses (2xx status codes)
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      cache.set(cacheKey, data);
+    }
     return originalJson(data);
   };
 
@@ -131,3 +134,4 @@ if (require.main === module) {
 }
 
 module.exports = app;
+module.exports.cache = cache;

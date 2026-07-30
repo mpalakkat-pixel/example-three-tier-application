@@ -4,6 +4,12 @@ const db = require('./db');
 
 jest.mock('./db');
 
+// Clear cache before each test
+beforeEach(() => {
+  app.cache.flushAll();
+  jest.clearAllMocks();
+});
+
 describe('GET /healthz', () => {
   it('should return HTTP 200 with service name', async () => {
     const response = await request(app)
@@ -236,12 +242,10 @@ describe('Caching middleware', () => {
 
   beforeEach(() => {
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-    jest.clearAllMocks();
   });
 
   afterEach(() => {
     consoleLogSpy.mockRestore();
-    jest.clearAllMocks();
   });
 
   it('should cache GET /tasks responses', async () => {
@@ -255,7 +259,7 @@ describe('Caching middleware', () => {
     expect(response1.body).toEqual([{ id: 1, title: 'Task 1', completed: false }]);
     expect(db.query).toHaveBeenCalledTimes(1);
 
-    // Second request should be served from cache
+    // Second request should be served from cache (no new db.query call)
     const response2 = await request(app)
       .get('/tasks')
       .expect(200);
@@ -294,6 +298,27 @@ describe('Caching middleware', () => {
       .expect(200);
 
     expect(response2.body).toEqual({ service: 'api' });
+  });
+
+  it('should not cache error responses', async () => {
+    db.query.mockRejectedValueOnce(new Error('Connection refused'));
+
+    // First request returns error
+    const response1 = await request(app)
+      .get('/readyz')
+      .expect(503);
+
+    expect(response1.body.status).toBe('unavailable');
+    expect(db.query).toHaveBeenCalledTimes(1);
+
+    // Second request should hit database again (not cached)
+    db.query.mockRejectedValueOnce(new Error('Connection refused'));
+    const response2 = await request(app)
+      .get('/readyz')
+      .expect(503);
+
+    expect(response2.body.status).toBe('unavailable');
+    expect(db.query).toHaveBeenCalledTimes(2); // Called again, not cached
   });
 
   it('should invalidate cache on POST /tasks', async () => {
