@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('./db');
+const cache = require('./cache');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -48,9 +49,22 @@ app.get('/readyz', async (_req, res) => {
   }
 });
 
-// GET /tasks — list all tasks
+// GET /tasks — list all tasks (with caching)
 app.get('/tasks', async (_req, res) => {
+  const cacheKey = 'tasks_list';
+  
+  // Check if data is in cache
+  const cachedTasks = cache.get(cacheKey);
+  if (cachedTasks) {
+    return res.json(cachedTasks);
+  }
+  
+  // If not in cache, fetch from database
   const { rows } = await db.query('SELECT * FROM tasks ORDER BY created_at ASC');
+  
+  // Store in cache
+  cache.set(cacheKey, rows);
+  
   res.json(rows);
 });
 
@@ -64,6 +78,10 @@ app.post('/tasks', async (req, res) => {
     'INSERT INTO tasks (title) VALUES ($1) RETURNING *',
     [title.trim()]
   );
+  
+  // Invalidate cache
+  cache.del('tasks_list');
+  
   res.status(201).json(rows[0]);
 });
 
@@ -83,6 +101,10 @@ app.patch('/tasks/:id', async (req, res) => {
     'UPDATE tasks SET completed = $1, title = $2 WHERE id = $3 RETURNING *',
     [newCompleted, newTitle, id]
   );
+  
+  // Invalidate cache
+  cache.del('tasks_list');
+  
   res.json(updated[0]);
 });
 
