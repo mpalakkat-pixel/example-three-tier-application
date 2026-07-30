@@ -1,258 +1,270 @@
+const test = require('node:test');
+const assert = require('node:assert');
 const request = require('supertest');
+const sinon = require('sinon');
 const app = require('./index');
 const db = require('./db');
 
-jest.mock('./db');
-
-describe('GET /healthz', () => {
-  it('should return HTTP 200 with service name', async () => {
+test('GET /healthz', async (t) => {
+  await t.test('should return HTTP 200 with service name', async () => {
     const response = await request(app)
       .get('/healthz')
       .expect(200);
 
-    expect(response.body).toEqual({ service: 'api' });
+    assert.deepStrictEqual(response.body, { service: 'api' });
   });
 
-  it('should return JSON content type', async () => {
+  await t.test('should return JSON content type', async () => {
     const response = await request(app)
       .get('/healthz')
       .expect('Content-Type', /json/);
 
-    expect(response.status).toBe(200);
+    assert.strictEqual(response.status, 200);
   });
 });
 
-describe('GET /readyz', () => {
-  afterEach(() => {
-    jest.clearAllMocks();
+test('GET /readyz', async (t) => {
+  let sandbox;
+
+  t.beforeEach(() => {
+    sandbox = sinon.createSandbox();
+    sandbox.stub(db, 'query');
   });
 
-  it('should return HTTP 200 when database is available', async () => {
-    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+  t.afterEach(() => {
+    sandbox.restore();
+  });
+
+  await t.test('should return HTTP 200 when database is available', async () => {
+    db.query.resolves({ rows: [{ '?column?': 1 }] });
 
     const response = await request(app)
       .get('/readyz')
       .expect(200);
 
-    expect(response.body).toEqual({ status: 'ready', database: 'connected' });
-    expect(db.query).toHaveBeenCalledWith('SELECT 1');
+    assert.deepStrictEqual(response.body, { status: 'ready', database: 'connected' });
+    assert(db.query.calledWith('SELECT 1'));
   });
 
-  it('should return HTTP 503 when database is unavailable', async () => {
+  await t.test('should return HTTP 503 when database is unavailable', async () => {
     const dbError = new Error('Connection refused');
-    db.query.mockRejectedValueOnce(dbError);
+    db.query.rejects(dbError);
 
     const response = await request(app)
       .get('/readyz')
       .expect(503);
 
-    expect(response.body).toEqual({
+    assert.deepStrictEqual(response.body, {
       status: 'unavailable',
       database: 'disconnected',
       error: 'Connection refused'
     });
-    expect(db.query).toHaveBeenCalledWith('SELECT 1');
+    assert(db.query.calledWith('SELECT 1'));
   });
 
-  it('should return JSON content type', async () => {
-    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+  await t.test('should return JSON content type', async () => {
+    db.query.resolves({ rows: [{ '?column?': 1 }] });
 
     const response = await request(app)
       .get('/readyz')
       .expect('Content-Type', /json/);
 
-    expect(response.status).toBe(200);
+    assert.strictEqual(response.status, 200);
   });
 
-  it('should return 503 with error message when database query fails', async () => {
+  await t.test('should return 503 with error message when database query fails', async () => {
     const dbError = new Error('ECONNREFUSED: Connection refused');
-    db.query.mockRejectedValueOnce(dbError);
+    db.query.rejects(dbError);
 
     const response = await request(app)
       .get('/readyz')
       .expect(503);
 
-    expect(response.body.status).toBe('unavailable');
-    expect(response.body.database).toBe('disconnected');
-    expect(response.body.error).toBe('ECONNREFUSED: Connection refused');
+    assert.strictEqual(response.body.status, 'unavailable');
+    assert.strictEqual(response.body.database, 'disconnected');
+    assert.strictEqual(response.body.error, 'ECONNREFUSED: Connection refused');
   });
 });
 
-describe('Request logging middleware', () => {
+test('Request logging middleware', async (t) => {
+  let sandbox;
   let consoleLogSpy;
 
-  beforeEach(() => {
-    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+  t.beforeEach(() => {
+    sandbox = sinon.createSandbox();
+    consoleLogSpy = sandbox.spy(console, 'log');
+    sandbox.stub(db, 'query');
   });
 
-  afterEach(() => {
-    consoleLogSpy.mockRestore();
-    jest.clearAllMocks();
+  t.afterEach(() => {
+    sandbox.restore();
   });
 
-  it('should log request with method, path, statusCode, and duration', async () => {
+  await t.test('should log request with method, path, statusCode, and duration', async () => {
     await request(app)
       .get('/healthz')
       .expect(200);
 
-    expect(consoleLogSpy).toHaveBeenCalled();
-    const logCall = consoleLogSpy.mock.calls.find(call => {
+    assert(consoleLogSpy.called);
+    const logCall = consoleLogSpy.getCalls().find(call => {
       try {
-        JSON.parse(call[0]);
+        JSON.parse(call.args[0]);
         return true;
       } catch {
         return false;
       }
     });
 
-    expect(logCall).toBeDefined();
-    const logEntry = JSON.parse(logCall[0]);
+    assert(logCall, 'Should have a JSON log call');
+    const logEntry = JSON.parse(logCall.args[0]);
     
-    expect(logEntry).toHaveProperty('method');
-    expect(logEntry).toHaveProperty('path');
-    expect(logEntry).toHaveProperty('statusCode');
-    expect(logEntry).toHaveProperty('duration');
+    assert(logEntry.hasOwnProperty('method'));
+    assert(logEntry.hasOwnProperty('path'));
+    assert(logEntry.hasOwnProperty('statusCode'));
+    assert(logEntry.hasOwnProperty('duration'));
   });
 
-  it('should log correct method and path', async () => {
+  await t.test('should log correct method and path', async () => {
     await request(app)
       .get('/healthz')
       .expect(200);
 
-    const logCall = consoleLogSpy.mock.calls.find(call => {
+    const logCall = consoleLogSpy.getCalls().find(call => {
       try {
-        const parsed = JSON.parse(call[0]);
+        const parsed = JSON.parse(call.args[0]);
         return parsed.path === '/healthz';
       } catch {
         return false;
       }
     });
 
-    const logEntry = JSON.parse(logCall[0]);
-    expect(logEntry.method).toBe('GET');
-    expect(logEntry.path).toBe('/healthz');
+    const logEntry = JSON.parse(logCall.args[0]);
+    assert.strictEqual(logEntry.method, 'GET');
+    assert.strictEqual(logEntry.path, '/healthz');
   });
 
-  it('should log correct status code for successful request', async () => {
+  await t.test('should log correct status code for successful request', async () => {
     await request(app)
       .get('/healthz')
       .expect(200);
 
-    const logCall = consoleLogSpy.mock.calls.find(call => {
+    const logCall = consoleLogSpy.getCalls().find(call => {
       try {
-        const parsed = JSON.parse(call[0]);
+        const parsed = JSON.parse(call.args[0]);
         return parsed.path === '/healthz';
       } catch {
         return false;
       }
     });
 
-    const logEntry = JSON.parse(logCall[0]);
-    expect(logEntry.statusCode).toBe(200);
+    const logEntry = JSON.parse(logCall.args[0]);
+    assert.strictEqual(logEntry.statusCode, 200);
   });
 
-  it('should log correct status code for error request', async () => {
-    db.query.mockRejectedValueOnce(new Error('Connection refused'));
+  await t.test('should log correct status code for error request', async () => {
+    db.query.rejects(new Error('Connection refused'));
 
     await request(app)
       .get('/readyz')
       .expect(503);
 
-    const logCall = consoleLogSpy.mock.calls.find(call => {
+    const logCall = consoleLogSpy.getCalls().find(call => {
       try {
-        const parsed = JSON.parse(call[0]);
+        const parsed = JSON.parse(call.args[0]);
         return parsed.path === '/readyz' && parsed.statusCode === 503;
       } catch {
         return false;
       }
     });
 
-    const logEntry = JSON.parse(logCall[0]);
-    expect(logEntry.statusCode).toBe(503);
+    const logEntry = JSON.parse(logCall.args[0]);
+    assert.strictEqual(logEntry.statusCode, 503);
   });
 
-  it('should log duration as a number', async () => {
+  await t.test('should log duration as a number', async () => {
     await request(app)
       .get('/healthz')
       .expect(200);
 
-    const logCall = consoleLogSpy.mock.calls.find(call => {
+    const logCall = consoleLogSpy.getCalls().find(call => {
       try {
-        JSON.parse(call[0]);
+        JSON.parse(call.args[0]);
         return true;
       } catch {
         return false;
       }
     });
 
-    const logEntry = JSON.parse(logCall[0]);
-    expect(typeof logEntry.duration).toBe('number');
-    expect(logEntry.duration).toBeGreaterThanOrEqual(0);
+    const logEntry = JSON.parse(logCall.args[0]);
+    assert.strictEqual(typeof logEntry.duration, 'number');
+    assert(logEntry.duration >= 0);
   });
 
-  it('should log as valid JSON', async () => {
+  await t.test('should log as valid JSON', async () => {
     await request(app)
       .get('/healthz')
       .expect(200);
 
-    const logCall = consoleLogSpy.mock.calls.find(call => {
+    const logCall = consoleLogSpy.getCalls().find(call => {
       try {
-        JSON.parse(call[0]);
+        JSON.parse(call.args[0]);
         return true;
       } catch {
         return false;
       }
     });
 
-    expect(logCall).toBeDefined();
-    expect(() => JSON.parse(logCall[0])).not.toThrow();
+    assert(logCall, 'Should have a JSON log call');
+    assert.doesNotThrow(() => JSON.parse(logCall.args[0]));
   });
 
-  it('should log POST request with correct method', async () => {
-    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Test', completed: false }] });
+  await t.test('should log POST request with correct method', async () => {
+    db.query.resolves({ rows: [{ id: 1, title: 'Test', completed: false }] });
 
     await request(app)
       .post('/tasks')
       .send({ title: 'Test Task' })
       .expect(201);
 
-    const logCall = consoleLogSpy.mock.calls.find(call => {
+    const logCall = consoleLogSpy.getCalls().find(call => {
       try {
-        const parsed = JSON.parse(call[0]);
+        const parsed = JSON.parse(call.args[0]);
         return parsed.path === '/tasks' && parsed.method === 'POST';
       } catch {
         return false;
       }
     });
 
-    const logEntry = JSON.parse(logCall[0]);
-    expect(logEntry.method).toBe('POST');
-    expect(logEntry.statusCode).toBe(201);
+    const logEntry = JSON.parse(logCall.args[0]);
+    assert.strictEqual(logEntry.method, 'POST');
+    assert.strictEqual(logEntry.statusCode, 201);
   });
 });
 
-describe('GET /metrics', () => {
+test('GET /metrics', async (t) => {
+  let sandbox;
   let consoleLogSpy;
 
-  beforeEach(() => {
-    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+  t.beforeEach(() => {
+    sandbox = sinon.createSandbox();
+    consoleLogSpy = sandbox.spy(console, 'log');
+    sandbox.stub(db, 'query');
   });
 
-  afterEach(() => {
-    consoleLogSpy.mockRestore();
-    jest.clearAllMocks();
+  t.afterEach(() => {
+    sandbox.restore();
   });
 
-  it('should return HTTP 200 with JSON content type', async () => {
+  await t.test('should return HTTP 200 with JSON content type', async () => {
     const response = await request(app)
       .get('/metrics')
       .expect(200)
       .expect('Content-Type', /json/);
 
-    expect(response.status).toBe(200);
+    assert.strictEqual(response.status, 200);
   });
 
-  it('should return an object with request counts', async () => {
+  await t.test('should return an object with request counts', async () => {
     // Make some requests to populate the counts
     await request(app).get('/healthz').expect(200);
     await request(app).get('/healthz').expect(200);
@@ -261,11 +273,11 @@ describe('GET /metrics', () => {
       .get('/metrics')
       .expect(200);
 
-    expect(typeof response.body).toBe('object');
-    expect(response.body).not.toBeNull();
+    assert.strictEqual(typeof response.body, 'object');
+    assert(response.body !== null);
   });
 
-  it('should track GET /healthz requests', async () => {
+  await t.test('should track GET /healthz requests', async () => {
     // Make a request to /healthz
     await request(app).get('/healthz').expect(200);
 
@@ -273,10 +285,10 @@ describe('GET /metrics', () => {
       .get('/metrics')
       .expect(200);
 
-    expect(response.body['GET /healthz']).toBeGreaterThanOrEqual(1);
+    assert(response.body['GET /healthz'] >= 1);
   });
 
-  it('should increment count for multiple requests to same endpoint', async () => {
+  await t.test('should increment count for multiple requests to same endpoint', async () => {
     // Make multiple requests to /healthz
     await request(app).get('/healthz').expect(200);
     await request(app).get('/healthz').expect(200);
@@ -286,25 +298,25 @@ describe('GET /metrics', () => {
       .get('/metrics')
       .expect(200);
 
-    expect(response.body['GET /healthz']).toBeGreaterThanOrEqual(3);
+    assert(response.body['GET /healthz'] >= 3);
   });
 
-  it('should track different endpoints separately', async () => {
+  await t.test('should track different endpoints separately', async () => {
     // Make requests to different endpoints
     await request(app).get('/healthz').expect(200);
-    db.query.mockResolvedValueOnce({ rows: [{ '?column?': 1 }] });
+    db.query.resolves({ rows: [{ '?column?': 1 }] });
     await request(app).get('/readyz').expect(200);
 
     const response = await request(app)
       .get('/metrics')
       .expect(200);
 
-    expect(response.body['GET /healthz']).toBeGreaterThanOrEqual(1);
-    expect(response.body['GET /readyz']).toBeGreaterThanOrEqual(1);
+    assert(response.body['GET /healthz'] >= 1);
+    assert(response.body['GET /readyz'] >= 1);
   });
 
-  it('should track POST requests', async () => {
-    db.query.mockResolvedValueOnce({ rows: [{ id: 1, title: 'Test', completed: false }] });
+  await t.test('should track POST requests', async () => {
+    db.query.resolves({ rows: [{ id: 1, title: 'Test', completed: false }] });
     await request(app)
       .post('/tasks')
       .send({ title: 'Test Task' })
@@ -314,10 +326,10 @@ describe('GET /metrics', () => {
       .get('/metrics')
       .expect(200);
 
-    expect(response.body['POST /tasks']).toBeGreaterThanOrEqual(1);
+    assert(response.body['POST /tasks'] >= 1);
   });
 
-  it('should include /metrics endpoint itself in counts', async () => {
+  await t.test('should include /metrics endpoint itself in counts', async () => {
     await request(app).get('/metrics').expect(200);
 
     const response = await request(app)
@@ -325,6 +337,6 @@ describe('GET /metrics', () => {
       .expect(200);
 
     // The /metrics endpoint should be counted
-    expect(response.body['GET /metrics']).toBeGreaterThanOrEqual(1);
+    assert(response.body['GET /metrics'] >= 1);
   });
 });
