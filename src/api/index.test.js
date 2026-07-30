@@ -232,6 +232,11 @@ describe('Request logging middleware', () => {
 });
 
 describe('GET /tasks caching', () => {
+  beforeEach(() => {
+    // Clear cache before each test
+    app.cache.flushAll();
+  });
+
   afterEach(() => {
     jest.clearAllMocks();
   });
