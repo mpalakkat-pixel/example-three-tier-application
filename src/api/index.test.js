@@ -230,3 +230,184 @@ describe('Request logging middleware', () => {
     expect(logEntry.statusCode).toBe(201);
   });
 });
+
+describe('GET /tasks with pagination', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should return paginated tasks with default page and limit', async () => {
+    const mockTasks = [
+      { id: 1, title: 'Task 1', completed: false, created_at: '2024-01-01' },
+      { id: 2, title: 'Task 2', completed: false, created_at: '2024-01-02' }
+    ];
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '15' }] }) // count query
+      .mockResolvedValueOnce({ rows: mockTasks }); // data query
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body).toHaveProperty('data');
+    expect(response.body).toHaveProperty('pagination');
+    expect(response.body.data).toEqual(mockTasks);
+    expect(response.body.pagination).toEqual({
+      page: 1,
+      limit: 10,
+      total: 15,
+      totalPages: 2
+    });
+  });
+
+  it('should accept custom page and limit parameters', async () => {
+    const mockTasks = [
+      { id: 11, title: 'Task 11', completed: false, created_at: '2024-01-11' },
+      { id: 12, title: 'Task 12', completed: false, created_at: '2024-01-12' }
+    ];
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '25' }] })
+      .mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks?page=2&limit=5')
+      .expect(200);
+
+    expect(response.body.pagination).toEqual({
+      page: 2,
+      limit: 5,
+      total: 25,
+      totalPages: 5
+    });
+
+    // Verify the query was called with correct offset
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [5, 5] // limit=5, offset=(2-1)*5=5
+    );
+  });
+
+  it('should cap limit at 100', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '200' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await request(app)
+      .get('/tasks?limit=500')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [100, 0] // limit capped at 100
+    );
+  });
+
+  it('should default to page 1 if page is less than 1', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '10' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await request(app)
+      .get('/tasks?page=0')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [10, 0] // offset should be 0 for page 1
+    );
+  });
+
+  it('should default to limit 10 if limit is less than 1', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '10' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await request(app)
+      .get('/tasks?limit=0')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [10, 0] // limit should default to 10
+    );
+  });
+
+  it('should handle non-numeric page and limit gracefully', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '10' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?page=abc&limit=xyz')
+      .expect(200);
+
+    expect(response.body.pagination.page).toBe(1);
+    expect(response.body.pagination.limit).toBe(10);
+  });
+
+  it('should calculate totalPages correctly', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '23' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?limit=5')
+      .expect(200);
+
+    // 23 items with limit 5 = 5 pages (5+5+5+5+3)
+    expect(response.body.pagination.totalPages).toBe(5);
+  });
+
+  it('should return empty data array when no tasks exist', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body.data).toEqual([]);
+    expect(response.body.pagination.total).toBe(0);
+    expect(response.body.pagination.totalPages).toBe(0);
+  });
+
+  it('should handle database errors gracefully', async () => {
+    const dbError = new Error('Database connection failed');
+    db.query.mockRejectedValueOnce(dbError);
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(500);
+
+    expect(response.body).toHaveProperty('error');
+    expect(response.body.error).toBe('Failed to fetch tasks');
+    expect(response.body).toHaveProperty('details');
+  });
+
+  it('should return correct pagination for last page with partial results', async () => {
+    const mockTasks = [
+      { id: 21, title: 'Task 21', completed: false, created_at: '2024-01-21' },
+      { id: 22, title: 'Task 22', completed: false, created_at: '2024-01-22' },
+      { id: 23, title: 'Task 23', completed: false, created_at: '2024-01-23' }
+    ];
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ total: '23' }] })
+      .mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks?page=5&limit=5')
+      .expect(200);
+
+    expect(response.body.data).toHaveLength(3);
+    expect(response.body.pagination).toEqual({
+      page: 5,
+      limit: 5,
+      total: 23,
+      totalPages: 5
+    });
+  });
+});
