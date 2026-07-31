@@ -1,5 +1,11 @@
 const express = require('express');
 const db = require('./db');
+const {
+  parsePaginationParams,
+  buildPaginatedQuery,
+  getPaginationParams,
+  buildPaginationMeta
+} = require('./pagination');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -48,10 +54,33 @@ app.get('/readyz', async (_req, res) => {
   }
 });
 
-// GET /tasks — list all tasks
-app.get('/tasks', async (_req, res) => {
-  const { rows } = await db.query('SELECT * FROM tasks ORDER BY created_at ASC');
-  res.json(rows);
+// GET /tasks — list all tasks with pagination
+app.get('/tasks', async (req, res) => {
+  try {
+    const { offset, limit } = parsePaginationParams(req.query);
+    
+    // Get total count
+    const countResult = await db.query('SELECT COUNT(*) as count FROM tasks');
+    const total = parseInt(countResult.rows[0].count, 10);
+    
+    // Get paginated results
+    const paginatedQuery = buildPaginatedQuery(
+      'SELECT * FROM tasks ORDER BY created_at ASC',
+      offset,
+      limit
+    );
+    const params = getPaginationParams(offset, limit);
+    const { rows } = await db.query(paginatedQuery, params);
+    
+    // Build response with pagination metadata
+    const pagination = buildPaginationMeta(offset, limit, total);
+    res.json({
+      data: rows,
+      pagination
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // POST /tasks — create a task
