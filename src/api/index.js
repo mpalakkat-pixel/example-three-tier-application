@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('./db');
+const { parsePaginationParams, formatPaginatedResponse } = require('./pagination');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -48,10 +49,25 @@ app.get('/readyz', async (_req, res) => {
   }
 });
 
-// GET /tasks — list all tasks
-app.get('/tasks', async (_req, res) => {
-  const { rows } = await db.query('SELECT * FROM tasks ORDER BY created_at ASC');
-  res.json(rows);
+// GET /tasks — list all tasks with pagination
+app.get('/tasks', async (req, res) => {
+  const { offset, limit } = parsePaginationParams(req.query);
+  
+  try {
+    // Get total count
+    const countResult = await db.query('SELECT COUNT(*) as count FROM tasks');
+    const total = parseInt(countResult.rows[0].count, 10);
+    
+    // Get paginated results
+    const { rows } = await db.query(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [limit, offset]
+    );
+    
+    res.json(formatPaginatedResponse(rows, total, offset, limit));
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch tasks', details: error.message });
+  }
 });
 
 // POST /tasks — create a task

@@ -230,3 +230,311 @@ describe('Request logging middleware', () => {
     expect(logEntry.statusCode).toBe(201);
   });
 });
+
+describe('GET /tasks - Pagination', () => {
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should return paginated tasks with default offset and limit', async () => {
+    const mockTasks = [
+      { id: 1, title: 'Task 1', completed: false, created_at: '2024-01-01' },
+      { id: 2, title: 'Task 2', completed: false, created_at: '2024-01-02' }
+    ];
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '50' }] })
+      .mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body).toHaveProperty('items');
+    expect(response.body).toHaveProperty('pagination');
+    expect(response.body.items).toEqual(mockTasks);
+    expect(response.body.pagination).toEqual({
+      offset: 0,
+      limit: 20,
+      total: 50,
+      hasMore: true
+    });
+  });
+
+  it('should use default limit of 20 when not specified', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '100' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [20, 0]
+    );
+  });
+
+  it('should use default offset of 0 when not specified', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '100' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    await request(app)
+      .get('/tasks?limit=10')
+      .expect(200);
+
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [10, 0]
+    );
+  });
+
+  it('should accept custom offset and limit', async () => {
+    const mockTasks = [
+      { id: 21, title: 'Task 21', completed: false, created_at: '2024-01-21' }
+    ];
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '100' }] })
+      .mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks?offset=20&limit=10')
+      .expect(200);
+
+    expect(response.body.pagination).toEqual({
+      offset: 20,
+      limit: 10,
+      total: 100,
+      hasMore: true
+    });
+
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [10, 20]
+    );
+  });
+
+  it('should enforce maximum limit of 100', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '500' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?limit=200')
+      .expect(200);
+
+    expect(response.body.pagination.limit).toBe(100);
+
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [100, 0]
+    );
+  });
+
+  it('should handle limit exactly at maximum (100)', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '500' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?limit=100')
+      .expect(200);
+
+    expect(response.body.pagination.limit).toBe(100);
+  });
+
+  it('should handle invalid offset (non-numeric)', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '50' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?offset=abc')
+      .expect(200);
+
+    expect(response.body.pagination.offset).toBe(0);
+  });
+
+  it('should handle invalid limit (non-numeric)', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '50' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?limit=xyz')
+      .expect(200);
+
+    expect(response.body.pagination.limit).toBe(20);
+  });
+
+  it('should handle negative offset by using 0', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '50' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?offset=-5')
+      .expect(200);
+
+    expect(response.body.pagination.offset).toBe(0);
+  });
+
+  it('should handle negative limit by using default', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '50' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?limit=-10')
+      .expect(200);
+
+    expect(response.body.pagination.limit).toBe(20);
+  });
+
+  it('should handle zero limit by using default', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '50' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?limit=0')
+      .expect(200);
+
+    expect(response.body.pagination.limit).toBe(20);
+  });
+
+  it('should correctly calculate hasMore when at end of results', async () => {
+    const mockTasks = [
+      { id: 41, title: 'Task 41', completed: false, created_at: '2024-01-41' },
+      { id: 42, title: 'Task 42', completed: false, created_at: '2024-01-42' }
+    ];
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '42' }] })
+      .mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks?offset=40&limit=10')
+      .expect(200);
+
+    expect(response.body.pagination.hasMore).toBe(false);
+  });
+
+  it('should correctly calculate hasMore when more results exist', async () => {
+    const mockTasks = Array.from({ length: 20 }, (_, i) => ({
+      id: i + 1,
+      title: `Task ${i + 1}`,
+      completed: false,
+      created_at: `2024-01-${String(i + 1).padStart(2, '0')}`
+    }));
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '100' }] })
+      .mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks?offset=0&limit=20')
+      .expect(200);
+
+    expect(response.body.pagination.hasMore).toBe(true);
+  });
+
+  it('should handle empty result set', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '0' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body.items).toEqual([]);
+    expect(response.body.pagination).toEqual({
+      offset: 0,
+      limit: 20,
+      total: 0,
+      hasMore: false
+    });
+  });
+
+  it('should handle database error gracefully', async () => {
+    db.query.mockRejectedValueOnce(new Error('Database connection failed'));
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(500);
+
+    expect(response.body).toHaveProperty('error');
+    expect(response.body.error).toBe('Failed to fetch tasks');
+    expect(response.body).toHaveProperty('details');
+  });
+
+  it('should return correct response structure', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '10' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body).toHaveProperty('items');
+    expect(response.body).toHaveProperty('pagination');
+    expect(response.body.pagination).toHaveProperty('offset');
+    expect(response.body.pagination).toHaveProperty('limit');
+    expect(response.body.pagination).toHaveProperty('total');
+    expect(response.body.pagination).toHaveProperty('hasMore');
+  });
+
+  it('should handle large offset beyond total count', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '50' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?offset=1000&limit=20')
+      .expect(200);
+
+    expect(response.body.items).toEqual([]);
+    expect(response.body.pagination.offset).toBe(1000);
+    expect(response.body.pagination.hasMore).toBe(false);
+  });
+
+  it('should handle float values for offset and limit', async () => {
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '100' }] })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const response = await request(app)
+      .get('/tasks?offset=10.5&limit=15.7')
+      .expect(200);
+
+    expect(response.body.pagination.offset).toBe(10);
+    expect(response.body.pagination.limit).toBe(15);
+  });
+
+  it('should maintain order by created_at ASC', async () => {
+    const mockTasks = [
+      { id: 1, title: 'Task 1', completed: false, created_at: '2024-01-01' },
+      { id: 2, title: 'Task 2', completed: false, created_at: '2024-01-02' },
+      { id: 3, title: 'Task 3', completed: false, created_at: '2024-01-03' }
+    ];
+
+    db.query
+      .mockResolvedValueOnce({ rows: [{ count: '3' }] })
+      .mockResolvedValueOnce({ rows: mockTasks });
+
+    const response = await request(app)
+      .get('/tasks')
+      .expect(200);
+
+    expect(response.body.items).toEqual(mockTasks);
+    expect(db.query).toHaveBeenCalledWith(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [20, 0]
+    );
+  });
+});
