@@ -2,6 +2,93 @@
 
 This is a three-tier web application with a Next.js frontend, Express REST API, and PostgreSQL database. Below is a complete description of all directories and their purposes.
 
+## File Count Summary
+
+**Total files in repository: 48 files**
+
+### Breakdown by category:
+- **Configuration files:** 11 (docker-compose.yml, package.json files, tsconfig.json, next.config.ts, etc.)
+- **Source code files:** 15 (JavaScript, TypeScript, CSS)
+- **Documentation files:** 5 (README.md, AGENTS.md, CLAUDE.md, agents.md, DIRECTORY_STRUCTURE.md)
+- **Database migrations:** 2 (migration files)
+- **Infrastructure-as-code:** 5 (Terraform .tf files)
+- **Docker files:** 4 (Dockerfile, .dockerignore files)
+- **Lock files:** 3 (package-lock.json files)
+- **Static assets:** 5 (SVG icons)
+- **Other:** 3 (.gitignore, LICENSE, .github/workflows/deploy.yml)
+
+### Detailed file listing by directory:
+
+#### Root level (5 files):
+- `.gitignore` — Git ignore rules
+- `LICENSE` — Project license
+- `README.md` — Main project documentation
+- `agents.md` — AI agent documentation
+- `docker-compose.yml` — Local development orchestration
+
+#### `.github/workflows/` (1 file):
+- `deploy.yml` — GitHub Actions deployment workflow
+
+#### `src/api/` (6 files):
+- `index.js` — Express API server
+- `index.test.js` — API tests
+- `db.js` — Database connection
+- `package.json` — Dependencies
+- `package-lock.json` — Locked dependencies
+- `Dockerfile` — Container config
+- `.dockerignore` — Docker ignore rules
+
+#### `src/db/` (5 files):
+- `package.json` — Dependencies
+- `package-lock.json` — Locked dependencies
+- `Dockerfile` — Container config
+- `.dockerignore` — Docker ignore rules
+- `migrations/` directory with 2 migration files
+
+#### `src/db/migrations/` (2 files):
+- `1718500000000_initial-schema.js` — Initial schema
+- `1718500001000_create-tasks.js` — Tasks table
+
+#### `src/web/` (18 files):
+- `package.json` — Dependencies
+- `package-lock.json` — Locked dependencies
+- `README.md` — Next.js documentation
+- `AGENTS.md` — Agent documentation
+- `CLAUDE.md` — Claude documentation
+- `Dockerfile` — Container config
+- `.dockerignore` — Docker ignore rules
+- `.gitignore` — Git ignore rules
+- `next.config.ts` — Next.js config
+- `tsconfig.json` — TypeScript config
+- `postcss.config.mjs` — PostCSS config
+- `eslint.config.mjs` — ESLint config
+- `app/` directory with 5 files
+- `public/` directory with 5 SVG files
+
+#### `src/web/app/` (5 files):
+- `layout.tsx` — Root layout
+- `page.tsx` — Home page
+- `actions.ts` — Server actions
+- `globals.css` — Global styles
+- `favicon.ico` — Browser icon
+
+#### `src/web/public/` (5 files):
+- `next.svg` — Next.js logo
+- `vercel.svg` — Vercel logo
+- `globe.svg` — Globe icon
+- `file.svg` — File icon
+- `window.svg` — Window icon
+
+#### `src/infrastructure/` (6 files):
+- `main.tf` — Main Terraform config
+- `variables.tf` — Terraform variables
+- `outputs.tf` — Terraform outputs
+- `migration.tf` — Migration config
+- `terraform.tfvars.example` — Example variables
+- `.gitignore` — Git ignore rules
+
+---
+
 ## Root Level Directories
 
 ### `.git/`
@@ -153,6 +240,12 @@ Docker Compose configuration that orchestrates local development environment wit
 - Project structure tree
 - Deploying to GCP (required variables, terraform commands)
 - Database migrations (how to apply and rollback)
+
+### `agents.md`
+AI agent documentation providing guidance for automated agents working on this project.
+
+### `LICENSE`
+Project license file specifying the terms under which the code can be used.
 
 ---
 
