@@ -48,10 +48,45 @@ app.get('/readyz', async (_req, res) => {
   }
 });
 
-// GET /tasks — list all tasks
-app.get('/tasks', async (_req, res) => {
-  const { rows } = await db.query('SELECT * FROM tasks ORDER BY created_at ASC');
-  res.json(rows);
+// GET /tasks — list tasks with pagination
+app.get('/tasks', async (req, res) => {
+  try {
+    // Parse pagination parameters
+    let page = parseInt(req.query.page, 10) || 1;
+    let limit = parseInt(req.query.limit, 10) || 10;
+
+    // Validate pagination parameters
+    if (page < 1) page = 1;
+    if (limit < 1) limit = 10;
+    if (limit > 100) limit = 100; // Cap at 100 items per page
+
+    // Calculate offset
+    const offset = (page - 1) * limit;
+
+    // Get total count
+    const countResult = await db.query('SELECT COUNT(*) as total FROM tasks');
+    const total = parseInt(countResult.rows[0].total, 10);
+
+    // Get paginated results
+    const { rows } = await db.query(
+      'SELECT * FROM tasks ORDER BY created_at ASC LIMIT $1 OFFSET $2',
+      [limit, offset]
+    );
+
+    const totalPages = Math.ceil(total / limit);
+
+    res.json({
+      data: rows,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to fetch tasks', details: error.message });
+  }
 });
 
 // POST /tasks — create a task
